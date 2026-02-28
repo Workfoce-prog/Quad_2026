@@ -9,8 +9,8 @@ st.set_page_config(page_title="MN Income Shares + GAI*", layout="wide")
 # Paths (robust on Streamlit Cloud)
 # ------------------------------------------------------------
 BASE_DIR = Path(__file__).resolve().parent
-DEFAULT_TABLE_PATH = BASE_DIR / "data" / "mn_basic_support_table_template.csv"
-DEFAULT_FPL_PATH   = BASE_DIR / "data" / "fpl_table_template.csv"
+DEFAULT_TABLE_PATH = BASE_DIR / "mn_basic_support_table_template.csv"
+DEFAULT_FPL_PATH   = BASE_DIR / "fpl_table_template.csv"
 
 # ------------------------------------------------------------
 # Loaders (single source of truth)
