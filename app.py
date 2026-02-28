@@ -5,6 +5,11 @@ import streamlit as st
 
 st.set_page_config(page_title="MN Income Shares + GAI* Demo", layout="wide")
 st.title("MN Income Shares (Statute Table) + GAI* Demo Dashboard")
+if table_file is None and not table_path.exists():
+    st.error("Missing default MN Basic Support Table CSV. Please upload it in the sidebar.")
+    st.stop()
+
+table_df = pd.read_csv(table_file) if table_file is not None else load_table(table_path)
 
 @st.cache_data
 def load_table(path: str) -> pd.DataFrame:
