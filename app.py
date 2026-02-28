@@ -218,7 +218,7 @@ def apply_burden_cap(order_m, income_m, cap=None):
 # ------------------------------------------------------------
 st.title("Minnesota Income Shares + GAI* (Demo)")
 
-tabs = st.tabs(["Income Shares (Statute)", "GAI Scoring", "Side-by-side + RAG", "Simulation Lab", "Diagnostics"])
+tabs = st.tabs(["Income Shares (Statute)", "GAI Scoring", "Side-by-side + RAG", "Simulation Lab", "Policy Guidance", "Diagnostics"])
 
 with tabs[0]:
     st.subheader("Income Shares (Statute Table) Calculator")
@@ -305,6 +305,288 @@ with tabs[2]:
     EQ = eq_score(relative_risk)
     GAI_full = 0.2*(LA+PP+CS+CP+EQ)
     GAI_no_cs = 0.25*(LA+PP+CP+EQ)
+    # -----------------------------
+# Policy Guidance Tab
+# -----------------------------
+with tabs[4]:
+    st.subheader("Policy Guidance (Economics-Based Recommendations)")
+    st.caption("This tab translates GAI component thresholds into operational guidance for counties, leadership, and guideline review.")
+
+    # Recompute the same core metrics used elsewhere (keeps tab standalone)
+    income_m = ncp_gross_m
+    wage_m = ncp_yearly_wage / 12.0 if ncp_yearly_wage > 0 else 0.0
+    wage_ratio = wage_m / county_median_wage_m if county_median_wage_m > 0 else 0.0
+    burden = order_actual_m / income_m if income_m > 0 else 1.0
+
+    LA = la_score(wage_ratio, burden)
+    PP = pp_score(income_m, order_actual_m, ssr_ncp, ssr_applied, excess_imputation)
+    CS = cs_score(collection_rate, missed_rate)
+
+    arrears_to_wage = arrears_balance / ncp_yearly_wage if ncp_yearly_wage > 0 else 10.0
+    year = int(pd.Timestamp.today().year)
+    fpl_annual = get_fpl_annual(fpl_df, year, 1)
+    wage_to_200fpl = ncp_yearly_wage / (2.0 * fpl_annual) if fpl_annual > 0 else 0.0
+
+    CP = cp_score(arrears_to_wage, wage_to_200fpl)
+    EQ = eq_score(relative_risk)
+
+    GAI_full = 0.2 * (LA + PP + CS + CP + EQ)
+    GAI_no_cs = 0.25 * (LA + PP + CP + EQ)
+
+    # County / economics context
+    st.markdown("### County Economics Context")
+    c1, c2, c3 = st.columns(3)
+    c1.metric("County median wage (monthly)", f"${county_median_wage_m:,.0f}")
+    c2.metric("NCP wage (monthly)", f"${wage_m:,.0f}")
+    c3.metric("Wage ratio (NCP / county median)", f"{wage_ratio:.2f}")
+
+    st.markdown("### Component Threshold Results (Current Case)")
+    r1, r2, r3, r4, r5 = st.columns(5)
+    r1.metric("LA", f"{LA:.1f}")
+    r2.metric("PP", f"{PP:.1f}")
+    r3.metric("CS", f"{CS:.1f}")
+    r4.metric("CP", f"{CP:.1f}")
+    r5.metric("EQ", f"{EQ:.1f}")
+
+    st.markdown("### Summary Index")
+    s1, s2 = st.columns(2)
+    s1.metric("GAI* (full)", f"{GAI_full:.1f}")
+    s2.metric("GAI(-CS)*", f"{GAI_no_cs:.1f}")
+
+    st.divider()
+
+    # Helper to pick band text
+    def band_label(x, green_lo, amber_lo):
+        if x >= green_lo:
+            return "Green"
+        if x >= amber_lo:
+            return "Amber"
+        return "Red"
+
+    la_band = band_label(LA, 70, 55)
+    pp_band = band_label(PP, 70, 55)
+    cs_band = band_label(CS, 75, 60)
+    cp_band = band_label(CP, 70, 55)
+    eq_band = band_label(EQ, 80, 60)
+    gai_band = band_label(GAI_full, 75, 60)
+
+    # Your policy text, organized by component and band
+    POLICY = {
+        "LA": {
+            "Green": {
+                "title": "🟢 LA ≥ 70 — Order realism broadly consistent with labor market",
+                "recs": [
+                    "Maintain current guideline calibration; prioritize stability over frequent changes.",
+                    "Use this group as the benchmark for “normal” burden expectations."
+                ],
+                "econ": "When orders match earning capacity, compliance is typically driven by normal income volatility rather than structural mismatch."
+            },
+            "Amber": {
+                "title": "🟡 LA 55–69 — Emerging labor mismatch",
+                "recs": [
+                    "Trigger a soft review rule: verify current wage, confirm employment continuity, and check wage trend (“degree of wage adjust”).",
+                    "Encourage automatic wage updates (e.g., annual wage refresh from UI/wage records)."
+                ],
+                "econ": "Amber suggests the order may be slightly above feasible levels; small shocks can push the case into nonpayment."
+            },
+            "Red": {
+                "title": "🔴 LA < 55 — Structural over-ordering risk",
+                "recs": [
+                    "Apply an economic feasibility adjustment: cap effective burden (Order/Income) for low-wage obligors and consider time-limited modification review tied to job placement.",
+                    "Reduce reliance on high imputation unless evidence supports true earning capacity."
+                ],
+                "econ": "When obligations exceed feasible earnings, arrears grow mechanically, reducing work incentives and increasing enforcement costs with low returns."
+            }
+        },
+        "PP": {
+            "Green": {
+                "title": "🟢 PP ≥ 70 — Poverty protection adequate",
+                "recs": [
+                    "Keep SSR design stable; monitor inflation/FPL changes annually.",
+                    "Maintain guardrails against aggressive imputation for low-income cases."
+                ],
+                "econ": "Protecting subsistence improves labor attachment and reduces churn (case cycling through enforcement)."
+            },
+            "Amber": {
+                "title": "🟡 PP 55–69 — Poverty stress zone",
+                "recs": [
+                    "Expand SSR eligibility or adjust SSR amount for inflation.",
+                    "Introduce graduated order schedules for incomes near 200% FPL (smooth phase-in)."
+                ],
+                "econ": "Near-poverty households are highly elastic: small increases in burden can cause larger drops in compliance."
+            },
+            "Red": {
+                "title": "🔴 PP < 55 — Poverty trap / arrears factory",
+                "recs": [
+                    "Implement a hard affordability rule: if Net income after order < 150% FPL → automatic review/adjustment.",
+                    "Cap disposable-income burden: Order/(Income − SSR) ≤ 40%.",
+                    "Limit imputation to a labor-market benchmark (county median or realistic percentile)."
+                ],
+                "econ": "Orders that push obligors below subsistence create predictable arrears accumulation and reduce long-term collections."
+            }
+        },
+        "CS": {
+            "Green": {
+                "title": "🟢 CS ≥ 75 — Stable payment system",
+                "recs": [
+                    "Use light-touch enforcement; focus on convenience (autopay, reminders).",
+                    "Keep predictable payment plans; avoid frequent changes."
+                ],
+                "econ": "High compliance is best preserved by reducing transaction costs."
+            },
+            "Amber": {
+                "title": "🟡 CS 60–74 — Volatility / inconsistent payments",
+                "recs": [
+                    "Use early intervention: job retention support, temporary payment flexibility, short-term arrears relief tied to compliance.",
+                    "Prioritize stability policies over punitive actions (avoid license suspension as first response)."
+                ],
+                "econ": "Amber cases often reflect income instability rather than refusal; supportive interventions usually yield higher ROI than enforcement escalation."
+            },
+            "Red": {
+                "title": "🔴 CS < 60 — Chronic nonpayment",
+                "recs": [
+                    "Segment Red cases into: (1) low capacity (fix affordability) and (2) enforcement-needed (behavioral noncompliance).",
+                    "Apply ability-to-pay screening before sanctions."
+                ],
+                "econ": "Enforcement without affordability correction increases arrears but may not increase collections."
+            }
+        },
+        "CP": {
+            "Green": {
+                "title": "🟢 CP ≥ 70 — High capacity and/or stable persistence",
+                "recs": [
+                    "Standard payment enforcement is sufficient.",
+                    "If arrears exist, use structured repayment at low marginal burden."
+                ],
+                "econ": "High capacity cases respond well to predictable rules and low friction."
+            },
+            "Amber": {
+                "title": "🟡 CP 55–69 — Moderate vulnerability",
+                "recs": [
+                    "Offer income smoothing tools (short payment holidays, flexible schedules).",
+                    "Encourage job mobility: workforce programs, occupational matching."
+                ],
+                "econ": "CP Amber is where prevention is cheapest: small supports prevent transition to chronic arrears."
+            },
+            "Red": {
+                "title": "🔴 CP < 55 — High collapse risk",
+                "recs": [
+                    "Create a two-track policy: Track A (structural poverty): lower order, stronger SSR, avoid aggressive arrears charging; Track B (capacity exists): structured enforcement + payment plan."
+                ],
+                "econ": "Avoid turning low-capacity cases into permanent debt. Debt overhang reduces labor supply and future compliance."
+            }
+        },
+        "EQ": {
+            "Green": {
+                "title": "🟢 EQ ≥ 80 — Near parity",
+                "recs": [
+                    "Maintain monitoring; publish equity metrics annually."
+                ],
+                "econ": "Stable equity signals consistent policy application, reducing legal/administrative risk."
+            },
+            "Amber": {
+                "title": "🟡 EQ 60–79 — Moderate disparity",
+                "recs": [
+                    "Require documentation + audit sampling for decisions driving disparity (deviations, default orders, imputed income).",
+                    "Provide district-level training and coding standardization."
+                ],
+                "econ": "Disparities often come from inconsistent processes; standardization is a low-cost fix with high legitimacy benefits."
+            },
+            "Red": {
+                "title": "🔴 EQ < 60 — Material structural inequity",
+                "recs": [
+                    "Initiate an equity corrective action plan: procedural review of imputation/default practices, revise decision rules creating uneven burdens, and formalize transparency requirements."
+                ],
+                "econ": "Persistent inequity increases downstream costs (enforcement, appeals, modification churn) and lowers system trust and compliance."
+            }
+        },
+        "GAI": {
+            "Green": {
+                "title": "🟢 GAI* ≥ 75 — High structural adequacy",
+                "recs": [
+                    "Maintain guidelines; update wage/FPL parameters annually (indexing).",
+                    "Use Green districts as benchmark for best practices."
+                ],
+                "econ": "High scores indicate guideline realism, poverty protection, capacity alignment, and equity consistency are jointly strong."
+            },
+            "Amber": {
+                "title": "🟡 GAI* 60–74 — Moderate risk (tune levers, don’t overhaul)",
+                "recs": [
+                    "Adjust targeted components rather than full guideline overhaul (PP→SSR/phase-in; LA→imputation guardrails; CP→payment plans/debt tools).",
+                    "Implement targeted pilots in high-risk districts."
+                ],
+                "econ": "Moderate-risk profiles benefit most from surgical policy adjustments and preventative interventions."
+            },
+            "Red": {
+                "title": "🔴 GAI* < 60 — Systemic risk (affordability first)",
+                "recs": [
+                    "Prioritize affordability reform first (PP + LA), then enforcement alignment (CS).",
+                    "Implement district-level reform package: imputation guardrails, automatic modification triggers for low-income shocks, simplified arrears adjustment policy for low-capacity obligors."
+                ],
+                "econ": "Red indicates structural noncompliance generation; punitive responses alone will not fix collections performance."
+            }
+        }
+    }
+
+    # Dynamic “Current Case” guidance
+    st.markdown("## Dynamic Guidance for This Case")
+    st.info("The guidance below is automatically selected based on this case’s current component scores and thresholds.")
+
+    def render_component(name, band):
+        block = POLICY[name][band]
+        st.markdown(f"### {block['title']}")
+        st.markdown("**Recommendations**")
+        for r in block["recs"]:
+            st.write(f"- {r}")
+        st.markdown("**Why (economics)**")
+        st.write(block["econ"])
+
+    render_component("LA", la_band)
+    render_component("PP", pp_band)
+    render_component("CS", cs_band)
+    render_component("CP", cp_band)
+    render_component("EQ", eq_band)
+
+    st.divider()
+    render_component("GAI", gai_band)
+
+    # Income Shares status interpretation (adjacent framework)
+    st.divider()
+    st.markdown("## Income Shares Status Interpretation (Adjacent to GAI)")
+    res = compute_income_shares(table_df, ncp_gross_m, cp_gross_m, children, ssr_ncp, ssr_cp, deductions_ncp, deductions_cp)
+    presumptive = res["IS_BS_NCP"] if np.isfinite(res["IS_BS_NCP"]) else np.nan
+    gap = order_actual_m - presumptive if np.isfinite(presumptive) else np.nan
+    gap_pct = abs(gap) / presumptive if (np.isfinite(gap) and presumptive > 0) else np.nan
+
+    disp_income = ncp_gross_m - ssr_ncp
+    disp_burden = (order_actual_m / disp_income) if disp_income > 0 else np.nan
+    total_burden = (order_actual_m / ncp_gross_m) if ncp_gross_m > 0 else np.nan
+
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Presumptive (statute)", f"${presumptive:,.0f}" if np.isfinite(presumptive) else "NA")
+    c2.metric("Actual order", f"${order_actual_m:,.0f}")
+    c3.metric("Gap (Actual − Presumptive)", f"${gap:,.0f}" if np.isfinite(gap) else "NA")
+    c4.metric("Gap %", f"{gap_pct*100:.1f}%" if np.isfinite(gap_pct) else "NA")
+
+    def status_from_gap(gp):
+        if not np.isfinite(gp):
+            return "Unknown (no presumptive computed)"
+        if gp <= 0.10:
+            return "Aligned (≤ ±10%)"
+        if gp <= 0.25:
+            return "Mild deviation (±10–25%)"
+        return "Material deviation (> ±25%)"
+
+    st.write(f"- **Income Shares status:** {status_from_gap(gap_pct)}")
+    if np.isfinite(disp_burden):
+        st.write(f"- **Disposable burden:** {disp_burden:.2f} (Order / (Income − SSR))")
+    if np.isfinite(total_burden):
+        st.write(f"- **Total burden:** {total_burden:.2f} (Order / Income)")
+
+    st.markdown("**Operational interpretation**")
+    st.write("- When the order is aligned and PP/LA are Green, compliance differences are usually driven by volatility, not structure.")
+    st.write("- When the order is materially above presumptive and PP/LA are Amber/Red, risk of structural arrears accumulation increases.")
+    st.write("- County context matters: wage ratio indicates whether the case is being evaluated against realistic local earning conditions.")    
 
     st.divider()
     st.markdown("### GAI RAG Status")
