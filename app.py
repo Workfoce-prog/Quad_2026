@@ -1,13 +1,29 @@
 
-import pandas as pd
-import numpy as np
+from pathlib import Path
 import streamlit as st
+import pandas as pd
 
-st.set_page_config(page_title="MN Income Shares + GAI* Demo", layout="wide")
-st.title("MN Income Shares (Statute Table) + GAI* Demo Dashboard")
-if table_file is None and not table_path.exists():
-    st.error("Missing default MN Basic Support Table CSV. Please upload it in the sidebar.")
-    st.stop()
+BASE_DIR = Path(__file__).resolve().parent
+table_path = BASE_DIR / "data" / "mn_basic_support_table_template.csv"
+
+# Sidebar uploader
+table_file = st.sidebar.file_uploader(
+    "Upload MN Basic Support Table CSV (optional override)",
+    type=["csv"]
+)
+
+@st.cache_data
+def load_table(path):
+    return pd.read_csv(path)
+
+# Safe loading logic
+if table_file is not None:
+    table_df = pd.read_csv(table_file)
+else:
+    if not table_path.exists():
+        st.error("Default MN Basic Support Table CSV not found in /data folder.")
+        st.stop()
+    table_df = load_table(table_path)
 
 table_df = pd.read_csv(table_file) if table_file is not None else load_table(table_path)
 
