@@ -166,7 +166,10 @@ with st.sidebar:
     excess_imputation = st.selectbox("Excess imputation? (indicator)", [0,1], index=0)
     relative_risk = st.slider("Equity relative risk (RR) for group in district", 0.2, 2.0, 1.0, 0.01)
 
-table_path = "data/mn_basic_support_table_template.csv"
+from pathlib import Path
+
+BASE_DIR = Path(__file__).resolve().parent
+table_path = BASE_DIR / "data" / "mn_basic_support_table_template.csv"
 fpl_path = "data/fpl_table_template.csv"
 table_df = pd.read_csv(table_file) if table_file is not None else load_table(table_path)
 fpl_df = pd.read_csv(fpl_file) if fpl_file is not None else load_fpl(fpl_path)
